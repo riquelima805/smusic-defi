@@ -7,5 +7,5 @@ export default defineConfig({
     react()
   ],
   
-  base: '/smusic-defi/',
+  base: './',
 })
