@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
+// Logo importado como módulo: o Vite resolve a URL final certa em build,
+// independente do `base` do vite.config.ts (ex: './' pro GitHub Pages) e sem
+// depender da URL atual do navegador. Coloque o arquivo em src/assets/logo.png.
+import logoUrl from './assets/logo.png';
 
 /* Tela de swap — conversão de ativos via API da Jupiter.
    A carteira injetada (window.adlaWallet) recebe a transação em Base64
@@ -211,6 +215,34 @@ const App: React.FC = () => {
     }
   }, [setMsg]);
 
+  // Auto-detecta carteira já autorizada (ex: reabrir o app com a extensão já
+  // conectada de uma sessão anterior) — sem isso, só carregava endereço/saldo
+  // depois de clicar em "Conectar Carteira" de novo a cada abertura.
+  useEffect(() => {
+    if (!provider) return;
+    provider.request<string[]>({ method: 'sol_accounts' })
+      .then(accs => {
+        if (accs?.[0]) {
+          setAddress(accs[0]);
+          refreshBalances(accs[0]);
+        }
+      })
+      .catch(() => {});
+
+    const onAccountsChanged = (accs: string[]) => {
+      const next = accs?.[0] ?? '';
+      setAddress(next);
+      if (next) refreshBalances(next);
+    };
+    const onDisconnect = () => setAddress('');
+    provider.on('accountsChanged', onAccountsChanged);
+    provider.on('disconnect', onDisconnect);
+    return () => {
+      provider.removeListener('accountsChanged', onAccountsChanged);
+      provider.removeListener('disconnect', onDisconnect);
+    };
+  }, [provider, refreshBalances]);
+
   const connect = async () => {
     if (!provider) { setMsg('Carteira não detectada', 'err'); return; }
     setConnecting(true); setMsg('Aguardando carteira...', 'loading');
@@ -273,8 +305,7 @@ const App: React.FC = () => {
       <div className="app-shell">
         <header className="app-header">
           <div className="brand">
-            <img src="/logo.png" alt="Logo" style={{ height: '40px', width: 'auto' }} />
-            <div className="brand-logo-slot" aria-hidden="true" />
+            <img src={logoUrl} alt="Logo" style={{ height: '40px', width: 'auto' }} />
           </div>
           <button type="button" className="btn-connect" onClick={address ? () => setAddress('') : connect}>
             <Icon name="wallet" size={16} spin={connecting} />
