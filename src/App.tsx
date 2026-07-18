@@ -1,13 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
-// Logo importado como módulo: o Vite resolve a URL final certa em build,
-// independente do `base` do vite.config.ts (ex: './' pro GitHub Pages) e sem
-// depender da URL atual do navegador. Coloque o arquivo em src/assets/logo.png.
 import logoUrl from './assets/logo.png';
-
-/* Tela de swap — conversão de ativos via API da Jupiter.
-   A carteira injetada (window.adlaWallet) recebe a transação em Base64
-   e assina nativamente no Android. */
 
 type AdlaMethod = 'sol_requestAccounts' | 'sol_accounts' | 'sol_sendTransaction';
 type AdlaEvent = 'accountsChanged' | 'disconnect';
@@ -25,12 +18,6 @@ declare global { interface Window { adlaWallet?: AdlaWalletProvider; } }
 
 interface Holding { symbol: string; name: string; address: string; decimals: number; balance: number; color: string; }
 
-// Moedas reais da Mainnet para a Jupiter encontrar as rotas.
-// IMPORTANTE: estes são endereços de MAINNET. O bridge Kotlin (AdlaJsBridge)
-// hoje reporta chainId "solana-devnet" — antes de ligar o swap de verdade,
-// alinhe a rede: ou o app roda em mainnet-beta, ou troque estes mints pelos
-// equivalentes de devnet (USDC/USDT de teste têm mints diferentes lá).
-// `balance` começa em 0 e é preenchido por fetchBalances() quando a carteira conecta.
 const REAL_TOKENS: Holding[] = [
   { symbol: 'SOL', name: 'Solana', address: 'So11111111111111111111111111111111111111112', decimals: 9, balance: 0, color: 'var(--holo-cyan)' },
   { symbol: 'USDC', name: 'USD Coin', address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6, balance: 0, color: 'var(--fandom-violet)' },
@@ -39,14 +26,10 @@ const REAL_TOKENS: Holding[] = [
   { symbol: 'USDG', name: 'Global Dollar', address: '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH', decimals: 6, balance: 0, color: 'var(--kpop-pink, #ff6fb5)' },
 ];
 
-// RPC pública da mainnet — troque por um provedor dedicado (Helius/QuickNode/etc)
-// em produção, a pública tem rate limit baixo.
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
 const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
-// Busca saldo real na chain: SOL nativo via getBalance, tokens SPL/Token-2022
-// via getParsedTokenAccountsByOwner (uma chamada por program id).
 async function fetchBalances(owner: string, tokens: Holding[]): Promise<Record<string, number>> {
   const rpc = async (method: string, params: unknown[]) => {
     const res = await fetch(SOLANA_RPC, {
@@ -61,7 +44,6 @@ async function fetchBalances(owner: string, tokens: Holding[]): Promise<Record<s
 
   const balances: Record<string, number> = {};
 
-  // 1. SOL nativo
   try {
     const sol = await rpc('getBalance', [owner]);
     balances['So11111111111111111111111111111111111111112'] = (sol?.value ?? 0) / 1e9;
@@ -69,7 +51,6 @@ async function fetchBalances(owner: string, tokens: Holding[]): Promise<Record<s
     console.error('Falha ao buscar saldo SOL', e);
   }
 
-  // 2. Tokens SPL (program clássico) e Token-2022 (ex: USDG)
   for (const programId of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
     try {
       const result = await rpc('getTokenAccountsByOwner', [
@@ -88,7 +69,7 @@ async function fetchBalances(owner: string, tokens: Holding[]): Promise<Record<s
     }
   }
 
-  // Garante 0 para tokens da lista sem conta ainda aberta
+  
   for (const t of tokens) if (!(t.address in balances)) balances[t.address] = 0;
   return balances;
 }
@@ -171,7 +152,6 @@ const App: React.FC = () => {
     if (type !== 'loading') setTimeout(() => setStatus(null), 3500);
   }, []);
 
-  // Busca a cotação na Jupiter toda vez que o valor digitado muda
   useEffect(() => {
     const fetchQuote = async () => {
       const amt = parseFloat(amountIn.replace(',', '.'));
@@ -180,8 +160,7 @@ const App: React.FC = () => {
       setFetchingQuote(true);
       try {
         const amountRaw = Math.floor(amt * Math.pow(10, tokenIn.decimals));
-        // quote-api.jup.ag/v6 (Metis) foi descontinuada. O free tier atual é lite-api.jup.ag/swap/v1.
-        // Para produção com mais rate limit, use https://api.jup.ag/swap/v1 com uma API key (portal.jup.ag).
+       
         const url = `https://lite-api.jup.ag/swap/v1/quote?inputMint=${tokenIn.address}&outputMint=${tokenOut.address}&amount=${amountRaw}&slippageBps=${parseFloat(slippage) * 100}`;
         const res = await fetch(url);
         const data = await res.json();
@@ -203,7 +182,7 @@ const App: React.FC = () => {
       const map = await fetchBalances(owner, REAL_TOKENS);
       setTokens(prev => {
         const next = prev.map(t => ({ ...t, balance: map[t.address] ?? t.balance }));
-        // Mantém tokenIn/tokenOut sincronizados com os novos saldos
+        
         setTokenIn(cur => next.find(t => t.symbol === cur.symbol) ?? cur);
         setTokenOut(cur => next.find(t => t.symbol === cur.symbol) ?? cur);
         return next;
@@ -215,9 +194,6 @@ const App: React.FC = () => {
     }
   }, [setMsg]);
 
-  // Auto-detecta carteira já autorizada (ex: reabrir o app com a extensão já
-  // conectada de uma sessão anterior) — sem isso, só carregava endereço/saldo
-  // depois de clicar em "Conectar Carteira" de novo a cada abertura.
   useEffect(() => {
     if (!provider) return;
     provider.request<string[]>({ method: 'sol_accounts' })
@@ -279,7 +255,7 @@ const App: React.FC = () => {
 
       setMsg('Assine na sua carteira...', 'loading');
       
-      // 2. Envia o Base64 pro seu Kotlin (AdlaJsBridge)
+     
       const res = await provider!.request<any>({
         method: 'sol_sendTransaction',
         params: [swapTransaction]
